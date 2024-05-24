@@ -23,12 +23,14 @@
         </div>
       </div>
       <div class="chat-inputs">
-        <input type="text" v-model="message" placeholder="Digite sua mensagem..." @keyup.enter="sendMessage"/>
-        <button @click="sendMessage">Enviar</button>
+        <form @submit.prevent="sendMessage" class="chat-inputs">
+          <input type="text" v-model="message" placeholder="Digite sua mensagem..." @keyup.enter="sendMessage" />
+          <input type="file" @change="handleFileUpload" ref="fileInput">
+          <button type="submit">Enviar</button>
+        </form>
       </div>
       <div class="chat-inputs-2">
         <button @click="clearHistory" class="clearHistory">Limpar Histórico</button>
-        <input type="file" @change="handleImageUpload" accept="image/*" />
       </div>
     </div>
   </div>
@@ -52,37 +54,73 @@ export default {
     return {
       message: '',
       chatMessages: [],
-      apiUrl: 'http://localhost:3000/api/generate',
+      apiUrl: 'https://vertex-ai-teste-c2vxsiybmq-uc.a.run.app/api/generate',
+      selectedFile: null,
     };
   },
   methods: {
+    handleFileUpload() {
+      this.selectedFile = this.$refs.fileInput.files[0];
+    },
     sendMessage() {
-      if (this.message) {
-        // Envie a mensagem para o Node.js usando Axios
-        axios.post(this.apiUrl, { message: this.message })
-          .then(response => {
-            // Receba a resposta da IA
-            const aiResponse = response.data.response;
-            const formattedResponse = aiResponse.replace(/<[^>]+>/g, '');
-
-            // Adicione a mensagem do usuário e a resposta da IA ao chat
-            this.chatMessages.push(this.message);
-            this.chatMessages.push(formattedResponse);
-
-            //Salvando no localStorage
-            localStorage.setItem('chatMessages', JSON.stringify(this.chatMessages));
-
-            // Limpe o campo de entrada e atualize a interface
-            this.message = '';
-            this.chatOutput.scrollTop = this.chatOutput.scrollHeight;
-          })
-          .catch(error => {
-            console.error('Erro ao enviar mensagem:', error);
-          });
-
+      if (this.message || this.selectedFile) {
+        let messageData = { message: this.message };
+        if (this.selectedFile) {
+          this.getBase64(this.selectedFile)
+          .then(base64 => {
+              messageData.file = {
+                mimeType: this.selectedFile.type, 
+                data: base64
+              };
+              this.sendMessageToNode(messageData);
+            })
+            .catch(error => {
+              console.error("Erro ao converter arquivo para Base64:", error);
+            });
+        } else {
+          this.sendMessageToNode(messageData);
+        }
       }
+    },
+    sendMessageToNode(messageData) {
+      // Envie a mensagem para o Node.js usando Axios
+      axios.post(this.apiUrl, messageData)
+        .then(response => {
+          // Receba a resposta da IA
+          const aiResponse = response.data.response;
+          const formattedResponse = aiResponse.replace(/<[^>]+>/g, '');
+
+          // Adicione a mensagem do usuário e a resposta da IA ao chat
+          this.chatMessages.push(this.message);
+          this.chatMessages.push(formattedResponse);
+
+          //Salvando no localStorage
+          localStorage.setItem('chatMessages', JSON.stringify(this.chatMessages));
+
+          // Limpe o campo de entrada e atualize a interface
+          this.message = '';
+          this.chatOutput.scrollTop = this.chatOutput.scrollHeight;
+        })
+        .catch(error => {
+          console.error('Erro ao enviar mensagem:', error);
+        })
+        .finally(() => {
+          this.message = '';
+          this.selectedFile = null;
+          this.$refs.fileInput.value = null; 
+        })
+
       // Atualize a rolagem da área de chat
       this.chatOutput.scrollTop = this.chatOutput.scrollHeight;
+
+    },
+    getBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]); // Extraia apenas o base64
+        reader.onerror = error => reject(error);
+      });
     },
     clearHistory() {
       localStorage.removeItem('chatMessages');
@@ -193,6 +231,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
 }
 
 .chat-inputs input {
@@ -233,7 +272,7 @@ body {
   font-size: 16px;
 }
 
-.chat-inputs-2 button:hover{
+.chat-inputs-2 button:hover {
   background: #e0efff;
 }
 
